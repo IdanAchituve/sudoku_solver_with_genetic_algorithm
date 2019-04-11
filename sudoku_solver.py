@@ -7,9 +7,9 @@ import game_board as gb
 np.random.seed(111)
 
 NUM_SOL = 100
-REPLICATION_PERC = 0.2  # number of replications
+NUM_REPLICATIONS = 0.25 * NUM_SOL  # number of replications
 MUTATION_PERC = 0.05  # % of mutations
-ELITISM = 5  # number of best solutions to take
+NUM_ELITISM = 0.05 * NUM_SOL  # number of best solutions to take
 
 # generate initial solutions from user input
 def generate_initial_solutions(input_board):
@@ -75,6 +75,21 @@ def from_fitness_to_probs(solutions, f_sum):
         sol.set_prob(f_sum)
 
 
+# select solutions based on biased selection
+def select_solutions_for_replications(solutions):
+
+    sol_probs = []  # save probability of each solution
+    # get probabilities while relying on the fact that they are sorted
+    for sol in solutions:
+        sol_probs.append(sol.get_prob())
+
+    sol_indices = np.arange(NUM_SOL)  # indices of the solutions
+
+    # sample solutions according to their probabilities without replacement
+    sampled_indices = np.random.choice(sol_indices, size=int(NUM_REPLICATIONS), replace=False, p=sol_probs)
+    return sorted(sampled_indices.tolist())
+
+
 # game course
 def play_sudoku():
     input_board = get_user_input()  # get initial board
@@ -82,10 +97,15 @@ def play_sudoku():
     f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
     best_fitness = gb.NUM_ROWS * 3  # the best score is 27
     from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
-    solutions.sort(key=operator.attrgetter('prob'))  # sort instances by the probability
+    solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
 
+    next_solutions = []
     # as long as there isn't a valid solution
     while f_max < best_fitness:
+        rep_sols = select_solutions_for_replications(solutions)  # get solutions from replications
+        elit_sols = list(range(int(NUM_ELITISM)))  # get elite solutions
+        sols_indx_proceeding_next_gen = set(rep_sols + elit_sols)  # merge replication and elitism solutions
+        sols_proceeding_next_gen = [solutions[i] for i in sols_indx_proceeding_next_gen]  # get the solutions that stay as is for next generation
         
 
 
