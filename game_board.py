@@ -5,7 +5,6 @@ np.random.seed(111)
 NUM_ROWS = NUM_COLS = 9
 MIN_VAL = 1
 MAX_VAL = 9
-MUTATION_RATE = 0.6
 
 # sum automaton class
 class candidate:
@@ -66,14 +65,14 @@ class candidate:
     def set_board(self, board):
         self.board = board
 
-    def mutate(self):
+    def mutate(self, mutation_rate):
 
         for row in range(NUM_ROWS):
             # per each row generate random number and do mutation
             rand_num = np.random.random()
 
             # do mutation if there are at least to open cells
-            if rand_num < MUTATION_RATE and np.count_nonzero(self.fixed_board[row]) <= (MAX_VAL - 2):
+            if rand_num < mutation_rate and np.count_nonzero(self.fixed_board[row]) <= (MAX_VAL - 2):
                 # pick random cells in the row in vacant places
                 col1 = np.random.randint(0, NUM_COLS)
                 col2 = np.random.randint(0, NUM_COLS)

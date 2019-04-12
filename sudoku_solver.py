@@ -10,8 +10,11 @@ np.random.seed(111)
 
 NUM_SOL = 100
 NUM_REPLICATIONS = 0.15 * NUM_SOL  # number of replications
-MUTATION_PERC = 0.05  # % of mutations
 NUM_ELITISM = 0.05 * NUM_SOL  # number of best solutions to take
+MUTATION_RATE = 0.05
+MUTATION_RATE_FACTOR = 2  # by how much to increment the mutation rate
+MAX_MUTATION_RATE = 0.5  # max mutation
+STAGNATION = 100  # number of generations that max fitness = min fitness
 
 
 # generate initial solutions from user input
@@ -180,20 +183,23 @@ def play_sudoku():
     solutions = generate_initial_solutions(input_board)  # generate 100 solutions
     f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
     best_fitness = gb.NUM_ROWS * 3  # the best score is 27
+    mutation_rate = MUTATION_RATE
 
     # as long as there isn't a valid solution
-    generation = 0
+    generation = fitness_calls = max_min = 0
     while f_max < best_fitness:
+
+        # calc bias probabilities
         from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
         solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
 
+        # create new solutions for next generation
         rep_sols = bias_selection(solutions)  # get solutions from replications
         elit_sols = list(range(int(NUM_ELITISM)))  # get elite solutions
         sols_indx_proceeding_next_gen = list(set(rep_sols + elit_sols))  # get indices of replication and elitism solutions
         # if the number of solutions achieved by replication and elitism is not even remove a replication solution
         if len(sols_indx_proceeding_next_gen) % 2 != 0:
             sols_indx_proceeding_next_gen = sols_indx_proceeding_next_gen[:-1]
-
         replication_sol = [copy.deepcopy(solutions[i]) for i in sols_indx_proceeding_next_gen if i >= NUM_ELITISM]  # replication
         elitism_sol = [copy.deepcopy(solutions[i]) for i in sols_indx_proceeding_next_gen if i < NUM_ELITISM]  # elitism
         solutions_temp = copy.deepcopy(solutions)
@@ -201,23 +207,36 @@ def play_sudoku():
 
         #  mutation
         for sol in replication_sol + cross_over_sol:
-            sol.mutate()
+            sol.mutate(mutation_rate)
 
+        # update to the new solutions
         del solutions  # delete the old solution list
         solutions = replication_sol + elitism_sol + cross_over_sol  # create new solution list
         f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
 
+        # count number of generations that the max and min fitness are equal if they are equal for a predefined generations increase the mutation rate
+        max_min += 1 if f_max == f_min else 0
+        mutation_rate = min(mutation_rate * MUTATION_RATE_FACTOR, MAX_MUTATION_RATE) if max_min > STAGNATION else MUTATION_RATE
+
+        # print progress
         if generation % 100 == 0:
             datetime_string = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
-            print(datetime_string + "\tgeneration: " + str(generation) + "\tmean fitness: " + str(f_min) +
+            print(datetime_string + "\tgeneration: " + str(generation) + "\t\tmean fitness: " + str(f_mean) +
                   "\tmin fitness: " + str(f_min) + "\tmax fitness: " + str(f_max))
 
+        # update variables
         generation += 1
+        fitness_calls = NUM_SOL * generation
 
     # print solution
     for sol in solutions:
-        board = sol.get
+        if sol.get_fitness() == best_fitness:
+            board = sol.get_board()
 
+    datetime_string = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
+    print(datetime_string)
+    print(board)
+    print("Number of calls: " + str(fitness_calls))
 
 
 if __name__ == '__main__':
