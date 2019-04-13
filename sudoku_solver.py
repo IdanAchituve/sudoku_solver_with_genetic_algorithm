@@ -9,13 +9,14 @@ import game_board as gb
 np.random.seed(111)
 
 NUM_SOL = 100
-NUM_REPLICATIONS = 0.15 * NUM_SOL  # number of replications
+NUM_REPLICATIONS = 0.0 * NUM_SOL  # number of replications
 NUM_ELITISM = 0.05 * NUM_SOL  # number of best solutions to take
-MUTATION_RATE = 0.05
+MUTATION_RATE = 0.2
 MUTATION_RATE_FACTOR = 2  # by how much to increment the mutation rate
 MAX_MUTATION_RATE = 0.5  # max mutation
-STAGNATION = 100  # number of generations that max fitness = min fitness
-
+MIN_MAX_STAGNATION = 100  # max number of generations that max fitness = min fitness
+MAX_STAGNATION = 700  # max number of generations with the same max solution
+MAX_GENERATIONS = 3000
 
 # generate initial solutions from user input
 def generate_initial_solutions(input_board):
@@ -185,16 +186,16 @@ def play_sudoku():
     best_fitness = gb.NUM_ROWS * 3  # the best score is 27
     mutation_rate = MUTATION_RATE
 
-    # as long as there isn't a valid solution
-    generation = fitness_calls = max_min = 0
-    while f_max < best_fitness:
+    # as long as there isn't a valid solution or didn't reach the number of generations limit
+    generation = fitness_calls = min_max = seq_max = 0
+    while f_max < best_fitness and generation <= MAX_GENERATIONS:
 
         # calc bias probabilities
         from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
         solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
 
         # create new solutions for next generation
-        rep_sols = bias_selection(solutions)  # get solutions from replications
+        rep_sols = bias_selection(solutions) if NUM_REPLICATIONS > 0 else []  # get solutions from replications
         elit_sols = list(range(int(NUM_ELITISM)))  # get elite solutions
         sols_indx_proceeding_next_gen = list(set(rep_sols + elit_sols))  # get indices of replication and elitism solutions
         # if the number of solutions achieved by replication and elitism is not even remove a replication solution
@@ -212,11 +213,19 @@ def play_sudoku():
         # update to the new solutions
         del solutions  # delete the old solution list
         solutions = replication_sol + elitism_sol + cross_over_sol  # create new solution list
+
+        prev_f_max = f_max
         f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
 
-        # count number of generations that the max and min fitness are equal if they are equal for a predefined generations increase the mutation rate
-        max_min += 1 if f_max == f_min else 0
-        mutation_rate = min(mutation_rate * MUTATION_RATE_FACTOR, MAX_MUTATION_RATE) if max_min > STAGNATION else MUTATION_RATE
+        # On convergence seed new solutions
+        min_max = min_max + 1 if f_max == f_min else 0
+        seq_max = seq_max + 1 if f_max == prev_f_max else 0
+        if seq_max >= MAX_STAGNATION or min_max >= MIN_MAX_STAGNATION:
+            solutions = generate_initial_solutions(input_board)
+            f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
+            min_max = seq_max = 0
+
+        #mutation_rate = min(mutation_rate * MUTATION_RATE_FACTOR, MAX_MUTATION_RATE) if min_max > STAGNATION else MUTATION_RATE
 
         # print progress
         if generation % 100 == 0:
@@ -228,13 +237,14 @@ def play_sudoku():
         generation += 1
         fitness_calls = NUM_SOL * generation
 
-    # print solution
-    for sol in solutions:
-        if sol.get_fitness() == best_fitness:
-            board = sol.get_board()
+        if generation == 300:
+            xxx = 1
 
-    datetime_string = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
-    print(datetime_string)
+    # print best solution
+    from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
+    solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
+    board = solutions[0].get_board()
+
     print(board)
     print("Number of calls: " + str(fitness_calls))
 
