@@ -9,13 +9,12 @@ import game_board as gb
 np.random.seed(111)
 
 NUM_SOL = 100
-NUM_REPLICATIONS = 0.0 * NUM_SOL  # number of replications
-NUM_ELITISM = 0.05 * NUM_SOL  # number of best solutions to take
+NUM_REPLICATIONS = 0.1 * NUM_SOL  # number of replications
+NUM_ELITISM = 0.01 * NUM_SOL  # number of best solutions to take
 MUTATION_RATE = 0.2
-MUTATION_RATE_FACTOR = 2  # by how much to increment the mutation rate
-MAX_MUTATION_RATE = 0.5  # max mutation
-MIN_MAX_STAGNATION = 100  # max number of generations that max fitness = min fitness
-MAX_STAGNATION = 700  # max number of generations with the same max solution
+MUTATION_RATE_FACTOR = 4  # by how much to increment the mutation rate
+MIN_MAX_STAGNATION = 600  # max number of generations that max fitness = min fitness
+MAX_STAGNATION = 600  # max number of generations with the same max solution
 MAX_GENERATIONS = 3000
 
 # generate initial solutions from user input
@@ -90,7 +89,7 @@ def bias_selection(solutions, sample_size=int(NUM_REPLICATIONS)):
     for sol in solutions:
         sol_probs.append(sol.get_prob())
 
-    sol_indices = np.arange(NUM_SOL)  # indices of the solutions
+    sol_indices = np.arange(len(solutions))  # indices of the solutions
 
     # sample solutions according to their probabilities without replacement
     sampled_indices = np.random.choice(sol_indices, size=sample_size, replace=False, p=sol_probs)
@@ -154,10 +153,10 @@ def cross_over(solutions, num_cross_over_sols):
     cross_over_solutions = []
     for i in range(int(num_cross_over_sols)):
         parent_indices = bias_selection(solutions, 2)  # choose randomly 2 parents
-        parent1 = solutions[parent_indices[0]]  # get the 1st parent
-        parent2 = solutions[parent_indices[1]]  # get the 2nd parent
-        child1 = parent1.get_board().copy()
-        child2 = parent2.get_board().copy()
+        child1 = copy.deepcopy(solutions[parent_indices[0]])  # get the 1st parent
+        child2 = copy.deepcopy(solutions[parent_indices[1]])  # get the 2nd parent
+        child1_board = child1.get_board().copy()
+        child2_board = child2.get_board().copy()
 
         # select randomly a range of rows to perform crossover on
         start_row = end_row = 0
@@ -167,13 +166,13 @@ def cross_over(solutions, num_cross_over_sols):
 
         # mix row1 and row2 values so that each row will be a valid row (i.e., all values between 1-9)
         for row in range(start_row, end_row):
-            child1[row, :], child2[row, :] = cyclic_crossover(child1[row, :], child2[row, :])
+            child1_board[row, :], child2_board[row, :] = cyclic_crossover(child1_board[row, :], child2_board[row, :])
 
         # update board for next generation
-        parent1.set_board(child1)
-        parent2.set_board(child2)
-        cross_over_solutions.append(parent1)
-        cross_over_solutions.append(parent2)
+        child1.set_board(child1_board)
+        child2.set_board(child2_board)
+        cross_over_solutions.append(child1)
+        cross_over_solutions.append(child2)
 
     return cross_over_solutions
 
@@ -184,10 +183,11 @@ def play_sudoku():
     solutions = generate_initial_solutions(input_board)  # generate 100 solutions
     f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
     best_fitness = gb.NUM_ROWS * 3  # the best score is 27
-    mutation_rate = MUTATION_RATE
+    mutation_rate_ins = MUTATION_RATE
 
     # as long as there isn't a valid solution or didn't reach the number of generations limit
     generation = fitness_calls = min_max = seq_max = 0
+    increae_mr = False
     while f_max < best_fitness and generation <= MAX_GENERATIONS:
 
         # calc bias probabilities
@@ -203,15 +203,13 @@ def play_sudoku():
             sols_indx_proceeding_next_gen = sols_indx_proceeding_next_gen[:-1]
         replication_sol = [copy.deepcopy(solutions[i]) for i in sols_indx_proceeding_next_gen if i >= NUM_ELITISM]  # replication
         elitism_sol = [copy.deepcopy(solutions[i]) for i in sols_indx_proceeding_next_gen if i < NUM_ELITISM]  # elitism
-        solutions_temp = copy.deepcopy(solutions)
-        cross_over_sol = cross_over(solutions_temp, int((NUM_SOL - len(sols_indx_proceeding_next_gen))/2))  # crossover
+        cross_over_sol = cross_over(solutions, int((NUM_SOL - len(sols_indx_proceeding_next_gen))/2))  # crossover
 
         #  mutation
         for sol in replication_sol + cross_over_sol:
-            sol.mutate(mutation_rate)
+            sol.mutate(mutation_rate_ins)
 
         # update to the new solutions
-        del solutions  # delete the old solution list
         solutions = replication_sol + elitism_sol + cross_over_sol  # create new solution list
 
         prev_f_max = f_max
@@ -220,12 +218,21 @@ def play_sudoku():
         # On convergence seed new solutions
         min_max = min_max + 1 if f_max == f_min else 0
         seq_max = seq_max + 1 if f_max == prev_f_max else 0
-        if seq_max >= MAX_STAGNATION or min_max >= MIN_MAX_STAGNATION:
-            solutions = generate_initial_solutions(input_board)
-            f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
-            min_max = seq_max = 0
+        #if seq_max >= MAX_STAGNATION or min_max >= MIN_MAX_STAGNATION:
+        #    solutions = generate_initial_solutions(input_board)
+        #    f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
+        #    min_max = seq_max = 0
 
-        #mutation_rate = min(mutation_rate * MUTATION_RATE_FACTOR, MAX_MUTATION_RATE) if min_max > STAGNATION else MUTATION_RATE
+        if seq_max >= MAX_STAGNATION or min_max >= MIN_MAX_STAGNATION:
+            mutation_rate_ins = mutation_rate_ins * MUTATION_RATE_FACTOR
+            min_max = seq_max = 0
+            start_generation = generation
+            increae_mr = True
+
+        if increae_mr:
+            if (generation - start_generation) == 100:
+                mutation_rate_ins = MUTATION_RATE
+                increae_mr = False
 
         # print progress
         if generation % 100 == 0:
