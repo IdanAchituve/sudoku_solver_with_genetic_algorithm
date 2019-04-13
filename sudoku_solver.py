@@ -6,22 +6,25 @@ import datetime
 import game_board as gb
 
 
-np.random.seed(111)
+np.random.seed(222)
 
 NUM_SOL = 100
 NUM_REPLICATIONS = 0.1 * NUM_SOL  # number of replications
-NUM_ELITISM = 0.01 * NUM_SOL  # number of best solutions to take
+NUM_ELITISM = 0.03 * NUM_SOL  # number of best solutions to take
 MUTATION_RATE = 0.2
 MUTATION_RATE_FACTOR = 4  # by how much to increment the mutation rate
-MIN_MAX_STAGNATION = 600  # max number of generations that max fitness = min fitness
-MAX_STAGNATION = 600  # max number of generations with the same max solution
-MAX_GENERATIONS = 3000
+NEW_SEED = 90
+HARD_STAGNATION = 2400  # max number of generations that max fitness = min fitness
+SOFT_STAGNATION = 1200  # max number of generations with the same max solution
+MAX_GENERATIONS = 10000
+MUTATION_TYPE_RATE = 0.7
+
 
 # generate initial solutions from user input
-def generate_initial_solutions(input_board):
+def generate_initial_solutions(input_board, num_sols):
 
     solutions = []
-    for i in range(NUM_SOL):
+    for i in range(num_sols):
         board = gb.candidate(input_board.copy())
         board.draw_random_solution()
         solutions.append(board)
@@ -147,6 +150,29 @@ def cyclic_crossover(prow1, prow2):
     return crow1, crow2
 
 
+# mix 2 parent rows according to: Learning Bayesian network structures by searching for the best ordering with genetic algorithms. IEEE Transactions on System, Man and Cybernetics, 26(4):487-493
+def random_crossover(prow1, prow2, fixed_board):
+
+    # new row values
+    crow1 = np.zeros(gb.MAX_VAL)
+    crow2 = np.zeros(gb.MAX_VAL)
+
+    for i in range(gb.MAX_VAL):
+        if fixed_board[i] != 0:
+            crow1[i] = fixed_board[i]
+            crow2[i] = fixed_board[i]
+        else:
+            rand_val = np.random.rand()
+            if rand_val < 0.5:
+                crow1[i] = prow1[i]
+                crow2[i] = prow2[i]
+            else:
+                crow2[i] = prow1[i]
+                crow1[i] = prow2[i]
+
+    return crow1, crow2
+
+
 # perform cycle crossover on rows
 def cross_over(solutions, num_cross_over_sols):
 
@@ -157,6 +183,7 @@ def cross_over(solutions, num_cross_over_sols):
         child2 = copy.deepcopy(solutions[parent_indices[1]])  # get the 2nd parent
         child1_board = child1.get_board().copy()
         child2_board = child2.get_board().copy()
+        fixed_board = child1.get_fixed_board()
 
         # select randomly a range of rows to perform crossover on
         start_row = end_row = 0
@@ -166,7 +193,8 @@ def cross_over(solutions, num_cross_over_sols):
 
         # mix row1 and row2 values so that each row will be a valid row (i.e., all values between 1-9)
         for row in range(start_row, end_row):
-            child1_board[row, :], child2_board[row, :] = cyclic_crossover(child1_board[row, :], child2_board[row, :])
+            #child1_board[row, :], child2_board[row, :] = cyclic_crossover(child1_board[row, :], child2_board[row, :])
+            child1_board[row, :], child2_board[row, :] = random_crossover(child1_board[row, :], child2_board[row, :], fixed_board[row, :])
 
         # update board for next generation
         child1.set_board(child1_board)
@@ -180,19 +208,19 @@ def cross_over(solutions, num_cross_over_sols):
 # game course
 def play_sudoku():
     input_board = get_user_input()  # get initial board
-    solutions = generate_initial_solutions(input_board)  # generate 100 solutions
+    solutions = generate_initial_solutions(input_board, NUM_SOL)  # generate 100 solutions
     f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
     best_fitness = gb.NUM_ROWS * 3  # the best score is 27
     mutation_rate_ins = MUTATION_RATE
+    # calc bias probabilities
+    from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
+    solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
 
     # as long as there isn't a valid solution or didn't reach the number of generations limit
-    generation = fitness_calls = min_max = seq_max = 0
+    generation = fitness_calls = min_max = seq_max = saved_f_max = 0
     increae_mr = False
+    mtr = MUTATION_TYPE_RATE
     while f_max < best_fitness and generation <= MAX_GENERATIONS:
-
-        # calc bias probabilities
-        from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
-        solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
 
         # create new solutions for next generation
         rep_sols = bias_selection(solutions) if NUM_REPLICATIONS > 0 else []  # get solutions from replications
@@ -207,32 +235,36 @@ def play_sudoku():
 
         #  mutation
         for sol in replication_sol + cross_over_sol:
-            sol.mutate(mutation_rate_ins)
+            sol.mutate(mutation_rate_ins, mtr)
 
         # update to the new solutions
         solutions = replication_sol + elitism_sol + cross_over_sol  # create new solution list
-
         prev_f_max = f_max
         f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
 
-        # On convergence seed new solutions
+        from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
+        solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
+
+        # On convergence for long time seed new solutions
         min_max = min_max + 1 if f_max == f_min else 0
         seq_max = seq_max + 1 if f_max == prev_f_max else 0
-        #if seq_max >= MAX_STAGNATION or min_max >= MIN_MAX_STAGNATION:
-        #    solutions = generate_initial_solutions(input_board)
-        #    f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
-        #    min_max = seq_max = 0
 
-        if seq_max >= MAX_STAGNATION or min_max >= MIN_MAX_STAGNATION:
-            mutation_rate_ins = mutation_rate_ins * MUTATION_RATE_FACTOR
+        #if seq_max >= SOFT_STAGNATION or min_max >= SOFT_STAGNATION:
+        #    mtr = 0.2
+        #    saved_f_max = f_max
+
+        #if f_max != saved_f_max:
+        #    mtr = MUTATION_TYPE_RATE
+
+        if seq_max >= HARD_STAGNATION or min_max >= HARD_STAGNATION:
+            new_solutions = generate_initial_solutions(input_board, NEW_SEED)
             min_max = seq_max = 0
-            start_generation = generation
-            increae_mr = True
-
-        if increae_mr:
-            if (generation - start_generation) == 100:
-                mutation_rate_ins = MUTATION_RATE
-                increae_mr = False
+            solutions[(NUM_SOL - NEW_SEED):] = new_solutions
+            # calc bias probabilities
+            f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
+            from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
+            solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
+            saved_f_max = 0
 
         # print progress
         if generation % 100 == 0:
