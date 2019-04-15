@@ -6,23 +6,22 @@ import datetime
 import game_board as gb
 
 
-np.random.seed(111)
+np.random.seed(222)
 
 NUM_SOL = 100
 NUM_REPLICATIONS = 0.1 * NUM_SOL  # number of replications
 NUM_ELITISM = 0.01 * NUM_SOL  # number of best solutions to take
 MUTATION_RATE = 0.2
-MUTATION_RATE_FACTOR = 4  # by how much to increment the mutation rate
-MIN_MAX_STAGNATION = 600  # max number of generations that max fitness = min fitness
-MAX_STAGNATION = 600  # max number of generations with the same max solution
-MAX_GENERATIONS = 3000
+MAX_STAGNATION = 1000  # max number of generations with the same max solution
+FITTEST_VS_WEAKEST = 0.85
+
 
 # generate initial solutions from user input
 def generate_initial_solutions(input_board):
 
     solutions = []
     for i in range(NUM_SOL):
-        board = gb.candidate(input_board.copy())
+        board = gb.Candidate(input_board.copy())
         board.draw_random_solution()
         solutions.append(board)
     return solutions
@@ -150,11 +149,26 @@ def cyclic_crossover(prow1, prow2):
 # perform cycle crossover on rows
 def cross_over(solutions, num_cross_over_sols):
 
+    # get 2 solutions to compete against each other
+    def tournament(p1_index, p2_index):
+        p1_fitness = solutions[p1_index].get_fitness()
+        p2_fitness = solutions[p2_index].get_fitness()
+        p1_higher = p1_fitness >= p2_fitness
+        r = np.random.rand()
+        if (r < FITTEST_VS_WEAKEST and p1_higher) or (r >= FITTEST_VS_WEAKEST and not p1_higher):
+            return p1_index
+        return p2_index
+
+
     cross_over_solutions = []
     for i in range(int(num_cross_over_sols)):
-        parent_indices = bias_selection(solutions, 2)  # choose randomly 2 parents
-        child1 = copy.deepcopy(solutions[parent_indices[0]])  # get the 1st parent
-        child2 = copy.deepcopy(solutions[parent_indices[1]])  # get the 2nd parent
+
+        #  choose 2 parents based on tournament
+        parent1 = tournament(np.random.randint(len(solutions)), np.random.randint(len(solutions)))
+        parent2 = tournament(np.random.randint(len(solutions)), np.random.randint(len(solutions)))
+
+        child1 = copy.deepcopy(solutions[parent1])  # get the 1st parent
+        child2 = copy.deepcopy(solutions[parent2])  # get the 2nd parent
         child1_board = child1.get_board().copy()
         child2_board = child2.get_board().copy()
 
@@ -183,16 +197,13 @@ def play_sudoku():
     solutions = generate_initial_solutions(input_board)  # generate 100 solutions
     f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
     best_fitness = gb.NUM_ROWS * 3  # the best score is 27
-    mutation_rate_ins = MUTATION_RATE
+    from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
+    solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
 
     # as long as there isn't a valid solution or didn't reach the number of generations limit
-    generation = fitness_calls = min_max = seq_max = 0
-    increae_mr = False
-    while f_max < best_fitness and generation <= MAX_GENERATIONS:
-
-        # calc bias probabilities
-        from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
-        solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
+    generation = fitness_calls = min_max = seq_max = switches = 0
+    best_of_breed = []
+    while f_max < best_fitness:
 
         # create new solutions for next generation
         rep_sols = bias_selection(solutions) if NUM_REPLICATIONS > 0 else []  # get solutions from replications
@@ -207,51 +218,52 @@ def play_sudoku():
 
         #  mutation
         for sol in replication_sol + cross_over_sol:
-            sol.mutate(mutation_rate_ins)
+            sol.mutate(MUTATION_RATE)
 
         # update to the new solutions
         solutions = replication_sol + elitism_sol + cross_over_sol  # create new solution list
 
         prev_f_max = f_max
         f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
+        from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
+        solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
+
+        best_sol = copy.deepcopy(solutions[0]) if generation == 0 else best_sol if solutions[0].get_fitness() < best_sol.get_fitness() else copy.deepcopy(solutions[0])
 
         # On convergence seed new solutions
         min_max = min_max + 1 if f_max == f_min else 0
         seq_max = seq_max + 1 if f_max == prev_f_max else 0
-        #if seq_max >= MAX_STAGNATION or min_max >= MIN_MAX_STAGNATION:
-        #    solutions = generate_initial_solutions(input_board)
-        #    f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
-        #    min_max = seq_max = 0
+        if seq_max >= MAX_STAGNATION or min_max >= MAX_STAGNATION:
 
-        if seq_max >= MAX_STAGNATION or min_max >= MIN_MAX_STAGNATION:
-            mutation_rate_ins = mutation_rate_ins * MUTATION_RATE_FACTOR
+            # if even the best of breed solutions didn't help - quit
+            if switches == 11:
+                break
+
+            # save the top 10% solutions from each restart
+            for sol_idx, sol in enumerate(solutions):
+                if sol_idx < len(solutions)/10:
+                    best_of_breed.append(copy.deepcopy(sol))
+
+            solutions = generate_initial_solutions(input_board) if switches < 10 else best_of_breed
+            f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
+            from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
+            solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
+
             min_max = seq_max = 0
-            start_generation = generation
-            increae_mr = True
-
-        if increae_mr:
-            if (generation - start_generation) == 100:
-                mutation_rate_ins = MUTATION_RATE
-                increae_mr = False
+            switches += 1
 
         # print progress
         if generation % 100 == 0:
             datetime_string = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
-            print(datetime_string + "\tgeneration: " + str(generation) + "\t\tmean fitness: " + str(f_mean) +
+            print(datetime_string + "\tbreed: " + str(switches) + "\tgeneration: " + str(generation) + "\t\tmean fitness: " + str(f_mean) +
                   "\tmin fitness: " + str(f_min) + "\tmax fitness: " + str(f_max))
 
         # update variables
         generation += 1
         fitness_calls = NUM_SOL * generation
 
-        if generation == 300:
-            xxx = 1
-
     # print best solution
-    from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
-    solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
-    board = solutions[0].get_board()
-
+    board = best_sol.get_board()
     print(board)
     print("Number of calls: " + str(fitness_calls))
 
