@@ -73,6 +73,7 @@ class Candidate:
         mutated = False
 
         # do mutation upon success and if it is possible to improve
+        self.set_fitness()
         if rand_num < mutation_rate and self.fitness < MAX_VAL * 3:
 
             while not mutated:
@@ -91,3 +92,7 @@ class Candidate:
                 self.board[row, cols[0]] = val2
                 self.board[row, cols[1]] = val1
                 mutated = True
+
+
+    def optimization(self):
+        xxx = 1

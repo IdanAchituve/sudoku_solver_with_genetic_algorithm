@@ -201,7 +201,7 @@ def play_sudoku():
     solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
 
     # as long as there isn't a valid solution or didn't reach the number of generations limit
-    generation = fitness_calls = min_max = seq_max = switches = 0
+    generation = fitness_calls = min_max = seq_max = breeds = 0
     best_of_breed = []
     while f_max < best_fitness:
 
@@ -235,27 +235,24 @@ def play_sudoku():
         seq_max = seq_max + 1 if f_max == prev_f_max else 0
         if seq_max >= MAX_STAGNATION or min_max >= MAX_STAGNATION:
 
+            breeds += 1
             # if even the best of breed solutions didn't help - quit
-            if switches == 11:
+            if breeds == 11:
                 break
 
-            # save the top 10% solutions from each restart
-            for sol_idx, sol in enumerate(solutions):
-                if sol_idx < len(solutions)/10:
-                    best_of_breed.append(copy.deepcopy(sol))
-
-            solutions = generate_initial_solutions(input_board) if switches < 10 else best_of_breed
+            # save the top 10% solutions from each breed
+            best_of_breed = best_of_breed + [copy.deepcopy(sol) for sol in solutions[:int(len(solutions)/10)]]
+            solutions = generate_initial_solutions(input_board) if breeds < 10 else best_of_breed
             f_sum, f_mean, f_max, f_min = set_fitness(solutions)  # calc the fitness of each solution
             from_fitness_to_probs(solutions, f_sum)  # set the probability of each solution
             solutions.sort(key=operator.attrgetter('prob'), reverse=True)  # sort instances by the probability
 
             min_max = seq_max = 0
-            switches += 1
 
         # print progress
         if generation % 100 == 0:
             datetime_string = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
-            print(datetime_string + "\tbreed: " + str(switches) + "\tgeneration: " + str(generation) + "\t\tmean fitness: " + str(f_mean) +
+            print(datetime_string + "\tbreed: " + str(breeds) + "\tgeneration: " + str(generation) + "\t\tmean fitness: " + str(f_mean) +
                   "\tmin fitness: " + str(f_min) + "\tmax fitness: " + str(f_max))
 
         # update variables
@@ -265,7 +262,7 @@ def play_sudoku():
     # print best solution
     board = best_sol.get_board()
     print(board)
-    print("Number of calls: " + str(fitness_calls))
+    print("Number of calls to fitness function: " + str(fitness_calls))
 
 
 if __name__ == '__main__':
